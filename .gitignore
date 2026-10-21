@@ -1,0 +1,22 @@
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Secrets and credentials
+.env
+.env.*
+!.env.example
+service-account*.json
+credentials.json
+privatekey.json
+
+# Local configuration
+.streamlit/secrets.toml
+
+# Generated files
+*.log
+.DS_Store

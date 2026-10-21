@@ -1,0 +1,8 @@
+earthengine-api
+flask
+streamlit
+requests
+folium
+streamlit-folium
+requests>=2.31
+pandas>=2.0
