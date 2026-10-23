@@ -84,12 +84,26 @@ def analyze():
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 422
 
-    except Exception:
+    except Exception as exc:
         app.logger.exception("Flood analysis failed")
+        message = str(exc).lower()
+        if "serviceusage.services.use" in message or "required permission to use project" in message:
+            return jsonify({
+                "error": "Earth Engine login succeeded, but this Google account needs the Service Usage Consumer role (roles/serviceusage.serviceUsageConsumer) on project annular-mercury-512512-v1. Ask the project owner to grant it in Google Cloud Console IAM, then retry."
+            }), 403
+        if "authorize access to your earth engine account" in str(exc).lower():
+            return jsonify({
+                "error": "Google Earth Engine is not authorized. Run this in the project PowerShell terminal: .\\.venv\\Scripts\\python.exe -c \"import ee; ee.Authenticate(); ee.Initialize(project='annular-mercury-512512-v1')\""
+            }), 503
         return jsonify({
             "error": "Analysis failed. Check the Flask terminal."
         }), 500
 
 
 if __name__ == "__main__":
-    app.run(debug=True, port=5000)
+    app.run(debug=False, port=5000)
+
+
+
+
+

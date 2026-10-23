@@ -2,7 +2,7 @@
 import ee
 import math
 
-PROJECT_ID = "project-43e60592-2ef1-4cf2-bb4"
+PROJECT_ID = "annular-mercury-512512-v1"
 
 
 def validate_analysis_result(
@@ -127,3 +127,4 @@ def analyze_flood(before_start, before_end,
             "not ground-validated."
             )
         }
+

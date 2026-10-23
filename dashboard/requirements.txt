@@ -1,5 +1,5 @@
-Flask
-earthengine-api
 streamlit>=1.40
 pandas>=2.0
-requests
+requests>=2.31
+folium>=0.15
+streamlit-folium>=0.20
