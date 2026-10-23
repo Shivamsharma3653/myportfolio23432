@@ -10,6 +10,7 @@ import folium
 import requests
 import streamlit as st
 from streamlit_folium import st_folium
+import hashlib
 
 
 st.set_page_config(
@@ -22,8 +23,28 @@ st.set_page_config(
 API_URL = os.getenv("JALDRISHTI_API_URL", "http://127.0.0.1:5000").rstrip("/")
 ANALYZE_URL = f"{API_URL}/analyze"
 # backend/flood_analysis.py currently uses this fixed rectangle.
-ROI_BOUNDS = [[26.2, 86.8], [26.6, 87.2]]
-ROI_CENTER = [26.4, 87.0]
+
+REGIONS = {
+    "koshi": {
+        "label": "Koshi Basin · Eastern Terai",
+        "bounds": [86.8, 26.2, 87.2, 26.6],
+        "center": [26.4, 87.0],
+    },
+    "karnali": {
+        "label": "Karnali Floodplain · Western Terai",
+        "bounds": [80.95, 28.30, 81.30, 28.70],
+        "center": [28.50, 81.125],
+    },
+    "rautahat": {
+        "label": "Rautahat · Central Terai",
+        "bounds": [84.8, 26.75, 85.35, 27.25],
+        "center": [27.0, 85.075],
+    },
+}
+
+for region in REGIONS.values():
+    west, south, east, north = region["bounds"]
+    region["folium_bounds"] = [[south, west], [north, east]]
 
 st.markdown(
     """
@@ -64,8 +85,13 @@ label,div[data-testid="stWidgetLabel"] p{color:#d0dce5!important;font-size:12px!
 )
 
 
-def make_payload(before_range, after_range) -> dict[str, str]:
-    """Convert Streamlit date ranges into the Flask API's ISO date contract."""
+
+def make_payload(before_range, after_range, region_key) -> dict[str, str]:
+    """Build the Flask API request, including the selected region."""
+
+    if region_key not in REGIONS:
+        raise ValueError("Select a valid analysis region.")
+
     if (
         not isinstance(before_range, (tuple, list))
         or not isinstance(after_range, (tuple, list))
@@ -73,11 +99,15 @@ def make_payload(before_range, after_range) -> dict[str, str]:
         or len(after_range) != 2
     ):
         raise ValueError("Select both a start and end date for each period.")
+
     if before_range[0] >= before_range[1] or after_range[0] >= after_range[1]:
         raise ValueError("Each date range must have a start date before its end date.")
+
     if before_range[1] > after_range[0]:
         raise ValueError("The baseline period must finish before the event period begins.")
+
     return {
+        "region": region_key,
         "before_start": before_range[0].isoformat(),
         "before_end": before_range[1].isoformat(),
         "after_start": after_range[0].isoformat(),
@@ -85,15 +115,42 @@ def make_payload(before_range, after_range) -> dict[str, str]:
     }
 
 
-def build_flood_map(tile_url: str) -> folium.Map:
-    """Create the Leaflet map with backend GEE tiles and the backend's fixed AOI."""
-    map_view = folium.Map(location=ROI_CENTER, zoom_start=9, tiles=None, control_scale=True)
+
+
+def build_original_map(region: dict) -> folium.Map:
+    original_map = folium.Map(
+        location=region["center"],
+        zoom_start=9,
+        tiles="OpenStreetMap",
+        control_scale=True,
+    )
+
+    folium.Rectangle(
+        bounds=region["folium_bounds"],
+        color="#f5bd61",
+        weight=2,
+        fill=False,
+        tooltip=f"Analysis region · {region['label']}",
+    ).add_to(original_map)
+
+    return original_map
+
+
+def build_flood_map(tile_url: str, region: dict) -> folium.Map:
+    map_view = folium.Map(
+        location=region["center"],
+        zoom_start=9,
+        tiles=None,
+        control_scale=True,
+    )
+
     folium.TileLayer(
         tiles="OpenStreetMap",
         name="OpenStreetMap",
         overlay=False,
         control=True,
     ).add_to(map_view)
+
     folium.TileLayer(
         tiles=tile_url,
         name="Sentinel-1 candidate flood extent · GEE",
@@ -103,21 +160,35 @@ def build_flood_map(tile_url: str) -> folium.Map:
         opacity=0.78,
         show=True,
     ).add_to(map_view)
+
     folium.Rectangle(
-        bounds=ROI_BOUNDS,
+        bounds=region["folium_bounds"],
         color="#f5bd61",
         weight=2,
         fill=False,
-        tooltip="Backend AOI · Koshi Basin test rectangle",
-        name="Analysis region",
+        tooltip=f"Analysis region · {region['label']}",
     ).add_to(map_view)
-    folium.LayerControl(collapsed=False, position="topright").add_to(map_view)
-    legend = """<div style="position:fixed;bottom:28px;left:18px;z-index:9999;background:#101f2dde;
-    color:#e7f0f6;padding:9px 12px;border:1px solid #496176;border-radius:8px;font:12px sans-serif">
-    <span style="color:#ff4b4b;font-size:18px">■</span> Candidate flood pixels &nbsp;
-    <span style="color:#f5bd61;font-size:18px">▱</span> Analysis boundary</div>"""
+
+    folium.LayerControl(
+        collapsed=False,
+        position="topright",
+    ).add_to(map_view)
+
+    legend = """
+    <div style="position:fixed;bottom:28px;left:18px;z-index:9999;
+    background:#101f2dde;color:#e7f0f6;padding:9px 12px;
+    border:1px solid #496176;border-radius:8px;font:12px sans-serif">
+    <span style="color:#ff4b4b;font-size:18px">■</span>
+    Candidate flood pixels &nbsp;
+    <span style="color:#f5bd61;font-size:18px">▱</span>
+    Analysis boundary
+    </div>
+    """
+
     map_view.get_root().html.add_child(folium.Element(legend))
+
     return map_view
+
 
 
 def scalar_csv(parameters: dict, result: dict) -> bytes:
@@ -139,8 +210,15 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("**ANALYSIS SETTINGS**")
-    st.caption("Current backend supports a fixed test area near the Koshi River, Nepal.")
-    st.text_input("Analysis region", "Koshi Basin · Nepal", disabled=True)
+
+    st.caption("Select a flood-prone test region in Nepal's Terai.")
+
+    selected_region = st.selectbox(
+        "Analysis region",
+        options=list(REGIONS.keys()),
+        format_func=lambda key: REGIONS[key]["label"],
+    )
+
     before_range = st.date_input(
         "Pre-flood baseline",
         value=(today - timedelta(days=46), today - timedelta(days=27)),
@@ -157,7 +235,7 @@ with st.sidebar:
 
 if run_analysis:
     try:
-        payload = make_payload(before_range, after_range)
+        payload = make_payload(before_range,after_range,selected_region,)
     except ValueError as exc:
         st.error(str(exc))
     else:
@@ -188,12 +266,15 @@ if run_analysis:
 analysis = st.session_state.get("analysis")
 current_params = None
 try:
-    current_params = make_payload(before_range, after_range)
+    current_params = make_payload(before_range,after_range,selected_region,)
 except ValueError:
     pass
 is_stale = bool(analysis and current_params != analysis["parameters"])
 
-st.markdown('<div class="eyebrow">FLOOD INTELLIGENCE · KOSHI BASIN, NEPAL</div>', unsafe_allow_html=True)
+st.markdown(
+    '<div class="eyebrow">MULTI-REGION FLOOD INTELLIGENCE · NEPAL</div>',
+    unsafe_allow_html=True,
+)
 st.markdown('<div class="title">Rapid flood analysis</div>', unsafe_allow_html=True)
 st.markdown(
     '<div class="sub">Sentinel-1 change detection from the Flask + Google Earth Engine backend. Review the candidate extent, acquisition counts, and validation status.</div>',
@@ -204,6 +285,7 @@ st.markdown("<div style='height:12px'></div>", unsafe_allow_html=True)
 if analysis:
     result = analysis["result"]
     params = analysis["parameters"]
+    region_config = REGIONS[params["region"]]
     if is_stale:
         st.warning("The selected dates differ from the last completed analysis. Run flood mapping again to refresh the displayed result.")
     st.markdown('<span class="status">● BACKEND RESULT · Earth Engine</span>', unsafe_allow_html=True)
@@ -231,16 +313,59 @@ if analysis:
     st.caption(f"Method: {result.get('method', 'Not supplied by backend')} · Analysis completed {analysis['fetched_at']} UTC")
 
     st.markdown('<div class="section-head"><h3>Interactive flood extent map</h3><p>Earth Engine tile overlay with basemap switcher and the backend’s fixed Koshi test-area boundary.</p></div>', unsafe_allow_html=True)
+   
     tile_url = result.get("flood_tile_url")
+
     if tile_url:
+        fingerprint = hashlib.sha256(
+            tile_url.encode("utf-8")
+        ).hexdigest()[:10]
+
+        st.caption(f"Flood tile fingerprint: {fingerprint}")
+
         try:
-            flood_map = build_flood_map(tile_url)
-            st_folium(flood_map, use_container_width=True, height=520, returned_objects=[])
+            col_left, col_right = st.columns(2, gap="medium")
+
+            # LEFT MAP: Original map without flood overlay
+            with col_left:
+                st.subheader("Original Map")
+                st.caption("Normal map · No flood overlay")
+
+                original_map = build_original_map(region_config)
+
+                st_folium(
+                    original_map,
+                    use_container_width=True,
+                    height=520,
+                    returned_objects=[],
+                    key=f"original_map_{analysis['fetched_at']}",
+                )
+
+            # RIGHT MAP: Flood detection map
+            with col_right:
+                st.subheader("Flood Detection Map")
+                st.caption("Sentinel-1 · Candidate flood extent")
+
+                flood_map = build_flood_map(tile_url,region_config)
+
+                st_folium(
+                    flood_map,
+                    use_container_width=True,
+                    height=520,
+                    returned_objects=[],
+                    key=f"flood_map_{analysis['fetched_at']}",
+                )
+
         except Exception as exc:
-            st.error(f"Could not render the Earth Engine tile map: {exc}")
+            st.error(f"Could not render the map: {exc}")
             st.code(tile_url, language=None)
+
     else:
-        st.info("The backend response did not include a flood tile URL, so the map is unavailable for this result.")
+        st.info(
+            "The backend response did not include a flood tile URL, "
+            "so the map is unavailable for this result."
+        )
+
 
     st.markdown('<div class="section-head"><h3>Impact data availability</h3><p>Only fields returned by the backend are reported as calculated.</p></div>', unsafe_allow_html=True)
     impact_cols = st.columns(3)
