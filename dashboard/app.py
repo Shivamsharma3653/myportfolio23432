@@ -23,6 +23,20 @@ st.set_page_config(
 API_URL = os.getenv("JALDRISHTI_API_URL", "http://127.0.0.1:5000").rstrip("/")
 ANALYZE_URL = f"{API_URL}/analyze"
 DEFAULT_BOUNDS = {"west": 86.8, "south": 26.2, "east": 87.2, "north": 26.6}
+REGION_PRESETS = {
+    "koshi": {
+        "label": "Koshi Basin · Eastern Terai",
+        "bounds": DEFAULT_BOUNDS,
+    },
+    "karnali": {
+        "label": "Karnali Floodplain · Western Terai",
+        "bounds": {"west": 80.95, "south": 28.30, "east": 81.30, "north": 28.70},
+    },
+    "rautahat": {
+        "label": "Rautahat · Central Terai",
+        "bounds": {"west": 84.8, "south": 26.75, "east": 85.35, "north": 27.25},
+    },
+}
 
 
 st.markdown(
@@ -71,6 +85,7 @@ def make_payload(
     region_name: str,
     optical_sensor: str,
     ground_truth_geojson: dict | None,
+    region_key: str,
 ) -> dict:
     if (
         not isinstance(before_range, (tuple, list))
@@ -96,6 +111,7 @@ def make_payload(
         "after_start": after_range[0].isoformat(),
         "after_end": (after_range[1] + timedelta(days=1)).isoformat(),
         "region_name": region_name.strip() or "Custom analysis region",
+        "region": region_key,
         "bounds": bounds,
         "optical_sensor": optical_sensor,
     }
@@ -238,14 +254,21 @@ with st.sidebar:
         unsafe_allow_html=True,
     )
     st.markdown("**ANALYSIS SETTINGS**")
-    region_name = st.text_input("Analysis region", "Koshi Basin · Nepal")
+    selected_region = st.selectbox(
+        "Region preset",
+        options=["koshi", "karnali", "rautahat", "custom"],
+        format_func=lambda key: REGION_PRESETS[key]["label"] if key in REGION_PRESETS else "Custom bounds",
+    )
+    selected_bounds = REGION_PRESETS.get(selected_region, {}).get("bounds", DEFAULT_BOUNDS)
+    region_default_name = REGION_PRESETS.get(selected_region, {}).get("label", "Custom analysis region")
+    region_name = st.text_input("Analysis region name", region_default_name, key=f"region-name-{selected_region}")
     st.caption("Sentinel-1 SAR is the primary detector. Choose an optional optical cross-check.")
     with st.expander("Region bounds"):
-        west = st.number_input("West longitude", value=DEFAULT_BOUNDS["west"], min_value=-180.0, max_value=180.0, step=0.01, format="%.4f")
-        south = st.number_input("South latitude", value=DEFAULT_BOUNDS["south"], min_value=-90.0, max_value=90.0, step=0.01, format="%.4f")
-        east = st.number_input("East longitude", value=DEFAULT_BOUNDS["east"], min_value=-180.0, max_value=180.0, step=0.01, format="%.4f")
-        north = st.number_input("North latitude", value=DEFAULT_BOUNDS["north"], min_value=-90.0, max_value=90.0, step=0.01, format="%.4f")
-        st.caption("Prototype limit: each region dimension must be 2° or smaller.")
+        west = st.number_input("West longitude", value=selected_bounds["west"], min_value=-180.0, max_value=180.0, step=0.01, format="%.4f", key=f"west-{selected_region}")
+        south = st.number_input("South latitude", value=selected_bounds["south"], min_value=-90.0, max_value=90.0, step=0.01, format="%.4f", key=f"south-{selected_region}")
+        east = st.number_input("East longitude", value=selected_bounds["east"], min_value=-180.0, max_value=180.0, step=0.01, format="%.4f", key=f"east-{selected_region}")
+        north = st.number_input("North latitude", value=selected_bounds["north"], min_value=-90.0, max_value=90.0, step=0.01, format="%.4f", key=f"north-{selected_region}")
+        st.caption("You can edit any preset bounds. Prototype limit: each region dimension must be 2° or smaller.")
     bounds = {"west": west, "south": south, "east": east, "north": north}
 
     today = date.today()
@@ -315,6 +338,7 @@ if run_analysis:
             region_name,
             optical_sensor,
             ground_truth_geojson,
+            selected_region,
         )
         if ground_truth_file is not None and field_file_error:
             raise ValueError(field_file_error)
@@ -355,6 +379,7 @@ try:
         region_name,
         optical_sensor,
         ground_truth_geojson,
+        selected_region,
     )
 except ValueError:
     pass
