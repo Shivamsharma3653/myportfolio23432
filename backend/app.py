@@ -2,7 +2,7 @@ from datetime import date
 
 from flask import Flask, jsonify, request
 
-from backend.flood_analysis import analyze_flood, validate_bounds, REGIONS
+from backend.flood_analysis import analyze_flood, validate_bounds
 
 
 app = Flask(__name__)
@@ -37,7 +37,6 @@ def home():
         "project": "Jal Drishti",
         "status": "running",
         "endpoints": ["/health", "/analyze"],
-        "regions": {key: value["label"] for key, value in REGIONS.items()},
     })
 
 
@@ -56,14 +55,8 @@ def analyze():
     if error:
         return jsonify({"error": error}), 400
 
-    region_key = data.get("region", "koshi")
-    if region_key not in {*REGIONS.keys(), "custom"}:
-        return jsonify({"error": "Choose koshi, karnali, rautahat, or custom."}), 400
     try:
-        requested_bounds = data.get("bounds")
-        if requested_bounds is None:
-            requested_bounds = REGIONS[region_key if region_key != "custom" else "koshi"]["bounds"]
-        bounds = validate_bounds(requested_bounds)
+        bounds = validate_bounds(data.get("bounds"))
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 

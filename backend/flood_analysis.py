@@ -10,20 +10,6 @@ from backend.impact_analysis import calculate_osm_impacts
 
 PROJECT_ID = "annular-mercury-512512-v1"
 DEFAULT_BOUNDS = {"west": 86.8, "south": 26.2, "east": 87.2, "north": 26.6}
-REGIONS = {
-    "koshi": {
-        "label": "Koshi Basin · Eastern Terai",
-        "bounds": DEFAULT_BOUNDS.copy(),
-    },
-    "karnali": {
-        "label": "Karnali Floodplain · Western Terai",
-        "bounds": {"west": 80.95, "south": 28.30, "east": 81.30, "north": 28.70},
-    },
-    "rautahat": {
-        "label": "Rautahat · Central Terai",
-        "bounds": {"west": 84.8, "south": 26.75, "east": 85.35, "north": 27.25},
-    },
-}
 MAX_BOUNDS_SPAN_DEGREES = 2.0
 WORLDPOP_DATASET = "WorldPop/GP/100m/pop"
 
@@ -47,15 +33,6 @@ def validate_bounds(bounds: Any = None) -> dict[str, float]:
     if east - west > MAX_BOUNDS_SPAN_DEGREES or north - south > MAX_BOUNDS_SPAN_DEGREES:
         raise ValueError("For this prototype, each custom region dimension must be at most 2 degrees.")
     return result
-
-
-def validate_analysis_result(before_count, after_count, area_km2, tile_url):
-    if before_count <= 0 or after_count <= 0:
-        raise RuntimeError("Invalid satellite image count.")
-    if not math.isfinite(area_km2) or area_km2 < 0:
-        raise RuntimeError("Invalid flood area calculated.")
-    if not isinstance(tile_url, str) or not tile_url.strip():
-        raise RuntimeError("Flood map URL was not generated.")
 
 
 def _area_km2(mask, aoi, scale: int = 10) -> float:
@@ -367,7 +344,6 @@ def analyze_flood(
     tile_url = flood_visual.getMapId()["tile_fetcher"].url_format
     before_tile_url = before_visual.getMapId()["tile_fetcher"].url_format
     after_tile_url = after_visual.getMapId()["tile_fetcher"].url_format
-    validate_analysis_result(before_count, after_count, area_km2, tile_url)
 
     population = _population_exposure(flood_mask, aoi)
     optical = _optical_cross_check(
